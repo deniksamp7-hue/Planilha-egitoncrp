@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EG - Tropa do Egito</title>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+    <style>
+        :root {
+            --gold: #d4af37;
+            --discord-blue: #5865f2;
+            --danger: #ed4245;
+            --success: #3ba55c;
+            --bg-dark: rgba(18, 18, 18, 0.95);
+        }
+
+        body {
+            margin: 0; padding: 20px; font-family: 'Segoe UI', sans-serif;
+            background: url('Fundoeg.png') no-repeat center center fixed;
+            background-size: cover; color: white;
+            display: flex; justify-content: center; align-items: flex-start; min-height: 100vh;
+        }
+
+        .container {
+            background: var(--bg-dark); padding: 30px; border-radius: 15px;
+            width: 100%; max-width: 1150px; border: 2px solid var(--gold);
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.5); backdrop-filter: blur(10px);
+        }
+
+        h2 { text-align: center; color: var(--gold); text-transform: uppercase; margin-bottom: 25px; letter-spacing: 2px; text-shadow: 2px 2px 4px black; }
+
+        .section { background: rgba(255,255,255,0.05); padding: 15px; border-radius: 10px; margin-bottom: 15px; border: 1px solid rgba(212,175,55,0.1); }
+
+        input, textarea {
+            width: 100%; padding: 12px; margin: 5px 0; border-radius: 5px;
+            border: 1px solid #333; background: #1a1a1a; color: white; box-sizing: border-box;
+            font-family: inherit;
+        }
+
+        textarea { height: 80px; resize: none; border: 1px solid var(--gold); }
+
+        .btn-group { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 15px; }
+        
+        button {
+            padding: 12px; border-radius: 5px; border: none; font-weight: bold;
+            text-transform: uppercase; cursor: pointer; transition: 0.3s;
+        }
+
+        .btn-add { background: var(--discord-blue); color: white; }
+        .btn-excel { background: var(--success); color: white; }
+        .btn-discord { background: var(--gold); color: black; }
+        .btn-copy { background: #555; color: white; }
+        .btn-del { background: var(--danger); color: white; padding: 5px 10px; font-size: 11px; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: rgba(26, 26, 26, 0.8); font-size: 13px; }
+        th { background: var(--gold); color: black; padding: 12px; text-align: left; }
+        td { padding: 10px; border-bottom: 1px solid #333; }
+        
+        .editable:hover { background: rgba(212,175,55,0.1); cursor: pointer; color: var(--gold); }
+        .hidden { display: none !important; }
+        label { font-size: 12px; color: var(--gold); font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="login-screen" class="container">
+        <h2>Acesso Recrutamento EG</h2>
+        <input type="text" id="login-nick" placeholder="NICK DO RESPONSÁVEL">
+        <input type="text" id="login-id" placeholder="SEU ID">
+        <button class="btn-add" onclick="fazerLogin()" style="width:100%">Entrar no Painel</button>
+    </div>
+
+    <div id="main-panel" class="container hidden">
+        <h2>Gestão Tropa do Egito</h2>
+        
+        <div class="btn-group">
+            <div class="section">
+                <label>📁 Importar Planilha (Ranking):</label>
+                <input type="file" id="input-excel" accept=".xlsx, .xls, .csv">
+                <button class="btn-excel" onclick="importarArquivo()" style="width: 100%;">Carregar Arquivo</button>
+            </div>
+            
+            <div class="section">
+                <label>📋 Colar Dados Copiados:</label>
+                <textarea id="texto-planilha" placeholder="Copie as células e cole aqui..."></textarea>
+                <button class="btn-excel" onclick="processarTextoCopiado()" style="width: 100%;">Processar Texto</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <label>✍️ Adição Manual Individual:</label>
+            <div style="display: flex; gap: 10px;">
+                <input type="text" id="novo-nick" placeholder="Nick">
+                <input type="text" id="novo-id" placeholder="ID">
+                <button class="btn-add" onclick="adicionarManual()">Adicionar</button>
+            </div>
+        </div>
+
+        <div style="overflow-x: auto; max-height: 350px; border: 1px solid var(--gold); border-radius: 5px;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>NICK</th>
+                        <th>ID</th>
+                        <th>RECRUTADOR</th>
+                        <th>ENTRADA / HORÁRIO</th>
+                        <th>AÇÕES</th>
+                    </tr>
+                </thead>
+                <tbody id="corpo-tabela"></tbody>
+            </table>
+        </div>
+
+        <div class="btn-group">
+            <button class="btn-discord" onclick="enviarParaDiscord()">🚀 Enviar para o Discord</button>
+            <button class="btn-copy" onclick="gerarTextoParaCopiar()">📄 Gerar Texto para Copiar</button>
+            <button class="btn-excel" onclick="exportarExcel()">📥 Baixar Planilha</button>
+        </div>
+        
+        <div class="section" style="margin-top: 20px;">
+            <label>Webhook:</label>
+            <input type="text" id="webhook-url" placeholder="URL do Webhook..." style="font-size: 11px;">
+            <button class="btn-add" onclick="salvarWebhook()" style="padding: 5px 10px; font-size: 11px;">Salvar Webhook</button>
+        </div>
+    </div>
+
+    <script>
+        let listaMembros = [];
+        const LINK_IMAGEM_NOVATOS = "https://cdn.discordapp.com/attachments/1466211743914000444/1466219950086688868/Gemini_Generated_Image_1u2w661u2w661u2w.png?ex=697bf33d&is=697aa1bd&hm=91f3f3172401896c51b0c4ece3c02d0e45fe91f91bbf909142636c5e75c7a3d3&"; // Link fixo do Imgur para não quebrar
+
+        window.onload = () => {
+            const salvo = localStorage.getItem('webhook-eg');
+            if(salvo) document.getElementById('webhook-url').value = salvo;
+        };
+
+        function salvarWebhook() {
+            localStorage.setItem('webhook-eg', document.getElementById('webhook-url').value);
+            alert("Webhook configurado!");
+        }
+
+        function fazerLogin() {
+            if(document.getElementById('login-nick').value) {
+                document.getElementById('login-screen').classList.add('hidden');
+                document.getElementById('main-panel').classList.remove('hidden');
+            } else { alert("Informe o Nick do Responsável!"); }
+        }
+
+        function formatarDataHoraExcel(valorData, valorHora) {
+            let dataFinal = "";
+            let horaFinal = "";
+            if (typeof valorData === 'number') {
+                const dateObj = XLSX.SSF.parse_date_code(valorData);
+                dataFinal = `${String(dateObj.d).padStart(2, '0')}/${String(dateObj.m).padStart(2, '0')}/${dateObj.y}`;
+            } else if (valorData) {
+                dataFinal = String(valorData).trim();
+                if (dataFinal.includes('-')) {
+                    const p = dataFinal.split('-');
+                    if(p[0].length === 4) dataFinal = `${p[2]}/${p[1]}/${p[0]}`;
+                }
+            }
+            if (typeof valorHora === 'number') {
+                const timeObj = XLSX.SSF.parse_date_code(valorHora);
+                horaFinal = `${String(timeObj.H).padStart(2, '0')}:${String(timeObj.M).padStart(2, '0')}`;
+            } else if (valorHora) {
+                horaFinal = String(valorHora).trim().substring(0, 5);
+            }
+            return `${dataFinal} ${horaFinal}`.trim();
+        }
+
+        function importarArquivo() {
+            const file = document.getElementById('input-excel').files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+                const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
+                rows.forEach((row, i) => {
+                    if (i > 0 && row[0]) {
+                        listaMembros.push({
+                            nick: String(row[0]).trim(),
+                            id: String(row[1] || "S/ID").trim(),
+                            recrutador: String(row[2] || "---").trim(),
+                            data: formatarDataHoraExcel(row[3], row[4])
+                        });
+                    }
+                });
+                renderizarTabela();
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function processarTextoCopiado() {
+            const texto = document.getElementById('texto-planilha').value.trim();
+            if (!texto) return;
+            const linhas = texto.split(/\r?\n/);
+            linhas.forEach(linha => {
+                const cols = linha.split(/[\t,]/); 
+                if (cols[0] && cols[0].toLowerCase() !== "nick do recrutado") {
+                    listaMembros.push({
+                        nick: cols[0].trim(),
+                        id: cols[1] ? cols[1].trim() : "S/ID",
+                        recrutador: cols[2] ? cols[2].trim() : "---",
+                        data: formatarDataHoraExcel(cols[3], cols[4])
+                    });
+                }
+            });
+            renderizarTabela();
+            document.getElementById('texto-planilha').value = "";
+        }
+
+        function renderizarTabela() {
+            const html = listaMembros.map((m, i) => `
+                <tr>
+                    <td class="editable" onclick="editar(${i}, 'nick')"><b>${m.nick}</b></td>
+                    <td class="editable" onclick="editar(${i}, 'id')">${m.id}</td>
+                    <td class="editable" onclick="editar(${i}, 'recrutador')">${m.recrutador}</td>
+                    <td class="editable" onclick="editar(${i}, 'data')">${m.data}</td>
+                    <td><button class="btn-del" onclick="remover(${i})">X</button></td>
+                </tr>
+            `).join('');
+            document.getElementById('corpo-tabela').innerHTML = html;
+        }
+
+        function editar(index, campo) {
+            const novo = prompt(`Novo:`, listaMembros[index][campo]);
+            if(novo !== null) { listaMembros[index][campo] = novo; renderizarTabela(); }
+        }
+
+        function remover(index) {
+            if(confirm("Remover?")) { listaMembros.splice(index, 1); renderizarTabela(); }
+        }
+
+        function adicionarManual() {
+            const n = document.getElementById('novo-nick');
+            const i = document.getElementById('novo-id');
+            if(n.value) {
+                listaMembros.push({ 
+                    nick: n.value, id: i.value, 
+                    recrutador: document.getElementById('login-nick').value,
+                    data: new Date().toLocaleDateString('pt-BR') + " " + new Date().toLocaleTimeString('pt-BR').slice(0, 5)
+                });
+                n.value = ''; i.value = ''; renderizarTabela();
+            }
+        }
+
+        async function enviarParaDiscord() {
+            const url = document.getElementById('webhook-url').value;
+            if(!url) return alert("Configure o Webhook!");
+            
+            const chunkSize = 8;
+            for (let i = 0; i < listaMembros.length; i += chunkSize) {
+                const pedaço = listaMembros.slice(i, i + chunkSize);
+                let listaTexto = pedaço.map(m => `👤 **${m.nick}** [${m.id}]\n┗ 🛡️ Por: *${m.recrutador}* | 📅 ${m.data}`).join('\n\n');
+
+                const payload = {
+                    username: "EG - GESTÃO",
+                    embeds: [{
+                        title: "⚔️ RELATÓRIO DE RECRUTAMENTO - TROPA DO EGITO",
+                        description: "Abaixo constam os novos recrutas adicionados ao sistema.",
+                        color: 13942583,
+                        fields: [
+                            { name: "📋 Membros Recrutados", value: listaTexto },
+                            { name: "📝 Ação Necessária", value: "[Clique aqui para Editar ou Adicionar mais](http://localhost:5500/index.html)" } 
+                        ],
+                        image: { url: LINK_IMAGEM_NOVATOS },
+                        footer: { text: "Sistema de Gestão EG | 2026", icon_url: LINK_IMAGEM_NOVATOS },
+                        timestamp: new Date()
+                    }]
+                };
+                await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            }
+            alert("Enviado com sucesso!");
+        }
+
+        function exportarExcel() {
+            const ws = XLSX.utils.json_to_sheet(listaMembros);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Membros");
+            XLSX.writeFile(wb, "Planilha_EG.xlsx");
+        }
+    </script>
+</body>
+</html>
