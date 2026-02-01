@@ -12,6 +12,7 @@
             --primary: #5865F2;
             --accent: #43b581;
             --danger: #ff4747;
+            --warning: #e67e22;
             --glass: rgba(0, 0, 0, 0.9);
         }
 
@@ -53,6 +54,8 @@
         .btn-blue { background: var(--primary); color: white; }
         .btn-green { background: var(--accent); color: white; }
         .btn-red { background: var(--danger); color: white; width: auto; padding: 5px 12px; }
+        .btn-orange { background: var(--warning); color: white; }
+        
         button:hover { transform: scale(1.02); filter: brightness(1.2); }
 
         table { width: 100%; border-collapse: collapse; margin-top: 15px; }
@@ -74,7 +77,7 @@
 
     <div id="loading-overlay">
         <div style="border: 5px solid #f3f3f3; border-top: 5px solid var(--primary); border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite;"></div>
-        <p style="margin-top: 15px;">Enviando lista por partes para o Discord...</p>
+        <p id="loading-text" style="margin-top: 15px;">Sincronizando...</p>
     </div>
 
     <div id="login-page">
@@ -93,9 +96,10 @@
                 <h3 style="margin:0">Painel de: <span id="display-nick" style="color:var(--primary)"></span></h3>
                 <span id="display-info" style="font-size: 0.8em; opacity: 0.7;"></span>
             </div>
-            <div style="display:flex; gap:10px;">
+            <div style="display:flex; gap:10px; align-items: center;">
                 <input type="text" id="webhook-url" placeholder="Insira o Webhook aqui" style="margin:0; width:300px;">
                 <button class="btn-green" style="width:auto" onclick="salvarConfig()">Salvar</button>
+                <button class="btn-red" style="background:#444" onclick="logout()">Logout 🚪</button>
             </div>
         </div>
 
@@ -122,11 +126,11 @@
                     <h3>📋 Planilha em Tempo Real</h3>
                     <div style="display:flex; gap:10px;">
                         <button class="btn-green" style="width:auto" onclick="exportarExcel()">Exportar .XLSX</button>
-                        <button class="btn-red" style="background:#e67e22" onclick="limparTudo()">Limpar Tudo</button>
+                        <button class="btn-red" style="background:#e67e22" onclick="confirmarLimpeza()">Limpar Tudo</button>
                     </div>
                 </div>
 
-                <div style="max-height: 450px; overflow-y: auto;">
+                <div style="max-height: 400px; overflow-y: auto;">
                     <table>
                         <thead>
                             <tr>
@@ -141,24 +145,62 @@
                     </table>
                 </div>
 
-                <button class="btn-blue" style="margin-top:20px; padding:18px; font-size:1.1em;" onclick="enviarDiscord()">🚀 Enviar Lista Oficial para o Discord</button>
+                <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 20px;">
+                    <button class="btn-blue" style="padding:15px; font-size:1.1em;" onclick="enviarDiscord(false)">🚀 Enviar Lista Oficial para o Discord</button>
+                    <button class="btn-orange" style="padding:15px; font-size:1.1em;" onclick="enviarDiscord(true)">🔄 Atualizar Lista Oficial</button>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
+        // Inicialização de dados
         let dados = JSON.parse(localStorage.getItem('eg_v2_dados')) || [];
         let webhookUrl = localStorage.getItem('eg_v2_webhook') || "";
+        let messageIds = JSON.parse(localStorage.getItem('eg_v2_msg_ids')) || [];
 
-        function fazerLogin() {
+        // Carregar login salvo ao iniciar
+        window.onload = function() {
+            const savedNick = localStorage.getItem('eg_v2_user_nick');
+            const savedID = localStorage.getItem('eg_v2_user_id');
+            const savedDiscord = localStorage.getItem('eg_v2_user_discord');
+
+            if(savedNick) {
+                document.getElementById('nick-user').value = savedNick;
+                document.getElementById('id-user').value = savedID || "";
+                document.getElementById('discord-user').value = savedDiscord || "";
+                fazerLogin(true); // Login automático
+            }
+        };
+
+        function fazerLogin(auto = false) {
             const nick = document.getElementById('nick-user').value;
+            const id = document.getElementById('id-user').value;
+            const discord = document.getElementById('discord-user').value;
+
             if(!nick) return alert("Digite seu nick!");
+
+            // Salvar no LocalStorage
+            localStorage.setItem('eg_v2_user_nick', nick);
+            localStorage.setItem('eg_v2_user_id', id);
+            localStorage.setItem('eg_v2_user_discord', discord);
+
+            // Interface
             document.getElementById('display-nick').innerText = nick;
-            document.getElementById('display-info').innerText = `ID: #${document.getElementById('id-user').value} | Discord: ${document.getElementById('discord-user').value}`;
+            document.getElementById('display-info').innerText = `ID: #${id} | Discord: ${discord}`;
             document.getElementById('login-page').style.display = 'none';
             document.getElementById('main-content').style.display = 'block';
             document.getElementById('webhook-url').value = webhookUrl;
             renderTabela();
+        }
+
+        function logout() {
+            if(confirm("Deseja sair e trocar de conta?")) {
+                localStorage.removeItem('eg_v2_user_nick');
+                localStorage.removeItem('eg_v2_user_id');
+                localStorage.removeItem('eg_v2_user_discord');
+                location.reload();
+            }
         }
 
         function salvarConfig() {
@@ -188,6 +230,9 @@
                 data: d ? new Date(d).toLocaleString('pt-BR') : new Date().toLocaleString('pt-BR')
             });
             atualizar();
+            // Limpar campos
+            document.getElementById('add-nick').value = "";
+            document.getElementById('add-id').value = "";
         }
 
         document.getElementById('import-excel').addEventListener('change', function(e) {
@@ -219,6 +264,7 @@
                 }
             });
             atualizar();
+            document.getElementById('copy-paste').value = "";
         }
 
         function atualizar() {
@@ -239,7 +285,29 @@
         }
 
         function excluir(i) { dados.splice(i, 1); atualizar(); }
-        function limparTudo() { if(confirm("Apagar toda a lista?")) { dados = []; atualizar(); } }
+
+        async function confirmarLimpeza() {
+            if(confirm("Deseja apagar a lista local e REMOVER as mensagens do Discord?")) {
+                document.getElementById('loading-overlay').style.display = 'flex';
+                document.getElementById('loading-text').innerText = "Apagando mensagens no Discord...";
+                
+                if(webhookUrl && messageIds.length > 0) {
+                    for (const msgId of messageIds) {
+                        try {
+                            await fetch(`${webhookUrl}/messages/${msgId}`, { method: 'DELETE' });
+                            await sleep(1000);
+                        } catch (e) { console.log("Erro ao apagar: " + msgId); }
+                    }
+                }
+                
+                dados = [];
+                messageIds = [];
+                localStorage.removeItem('eg_v2_msg_ids');
+                atualizar();
+                document.getElementById('loading-overlay').style.display = 'none';
+                alert("Tudo limpo!");
+            }
+        }
 
         function exportarExcel() {
             const ws = XLSX.utils.json_to_sheet(dados);
@@ -250,14 +318,20 @@
 
         const sleep = ms => new Promise(res => setTimeout(res, ms));
 
-        async function enviarDiscord() {
+        async function enviarDiscord(isUpdate) {
             if(!webhookUrl) return alert("Erro: Configure o Webhook primeiro!");
             if(dados.length === 0) return alert("Lista vazia!");
+            
+            if(isUpdate && messageIds.length === 0) {
+                return alert("Não há uma lista enviada anteriormente para atualizar.");
+            }
 
             document.getElementById('loading-overlay').style.display = 'flex';
+            document.getElementById('loading-text').innerText = isUpdate ? "Atualizando mensagens..." : "Enviando novas mensagens...";
 
             const tamanhoBloco = 8;
             const totalPartes = Math.ceil(dados.length / tamanhoBloco);
+            const novosIds = [];
 
             try {
                 for (let i = 0; i < totalPartes; i++) {
@@ -271,25 +345,41 @@
                             description: `**Responsável:** ${document.getElementById('display-nick').innerText}\n**Parte:** ${i + 1} de ${totalPartes}`,
                             color: 5814783,
                             fields: [{ name: "Membros Registrados nesta Parte", value: membrosTexto }],
-                            // LINK DO POSTIMAGES APLICADO AQUI:
                             image: { url: "https://i.postimg.cc/G3y8Jmrb/Novatos.png" }, 
-                            footer: { text: "Sistema de Gestão EG - Painel de Controle" },
+                            footer: { text: "Sistema de Gestão EG - Sincronizado" },
                             timestamp: new Date()
                         }]
                     };
 
-                    const res = await fetch(webhookUrl, {
-                        method: 'POST',
+                    let url = webhookUrl;
+                    let metodo = 'POST';
+
+                    if(isUpdate && messageIds[i]) {
+                        url = `${webhookUrl}/messages/${messageIds[i]}`;
+                        metodo = 'PATCH';
+                    } else {
+                        url = `${webhookUrl}?wait=true`; 
+                    }
+
+                    const res = await fetch(url, {
+                        method: metodo,
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
                     });
 
-                    if(!res.ok) throw new Error("Erro no envio");
+                    if(!res.ok) throw new Error("Erro na comunicação");
+
+                    const resData = await res.json();
+                    novosIds.push(resData.id);
+
                     if(totalPartes > 1) await sleep(1200);
                 }
-                alert("🚀 Lista enviada com sucesso!");
+
+                messageIds = novosIds;
+                localStorage.setItem('eg_v2_msg_ids', JSON.stringify(messageIds));
+                alert(isUpdate ? "🔄 Lista atualizada com sucesso!" : "🚀 Lista enviada com sucesso!");
             } catch (err) {
-                alert("Falha ao enviar. Verifique o Webhook.");
+                alert("Falha ao processar. Verifique o Webhook.");
             } finally {
                 document.getElementById('loading-overlay').style.display = 'none';
             }
