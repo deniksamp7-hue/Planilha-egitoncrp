@@ -55,6 +55,8 @@
         .btn-green { background: var(--accent); color: white; }
         .btn-red { background: var(--danger); color: white; width: auto; padding: 5px 12px; }
         .btn-orange { background: var(--warning); color: white; }
+        .btn-edit { background: var(--primary); color: white; width: auto; padding: 5px 12px; margin-right: 5px; opacity: 0.9; }
+        .btn-edit:hover { opacity: 1; background: #4752c4; }
         
         button:hover { transform: scale(1.02); filter: brightness(1.2); }
 
@@ -154,12 +156,10 @@
     </div>
 
     <script>
-        // Inicialização de dados
         let dados = JSON.parse(localStorage.getItem('eg_v2_dados')) || [];
         let webhookUrl = localStorage.getItem('eg_v2_webhook') || "";
         let messageIds = JSON.parse(localStorage.getItem('eg_v2_msg_ids')) || [];
 
-        // Carregar login salvo ao iniciar
         window.onload = function() {
             const savedNick = localStorage.getItem('eg_v2_user_nick');
             const savedID = localStorage.getItem('eg_v2_user_id');
@@ -169,7 +169,7 @@
                 document.getElementById('nick-user').value = savedNick;
                 document.getElementById('id-user').value = savedID || "";
                 document.getElementById('discord-user').value = savedDiscord || "";
-                fazerLogin(true); // Login automático
+                fazerLogin(true);
             }
         };
 
@@ -180,12 +180,10 @@
 
             if(!nick) return alert("Digite seu nick!");
 
-            // Salvar no LocalStorage
             localStorage.setItem('eg_v2_user_nick', nick);
             localStorage.setItem('eg_v2_user_id', id);
             localStorage.setItem('eg_v2_user_discord', discord);
 
-            // Interface
             document.getElementById('display-nick').innerText = nick;
             document.getElementById('display-info').innerText = `ID: #${id} | Discord: ${discord}`;
             document.getElementById('login-page').style.display = 'none';
@@ -211,6 +209,7 @@
 
         function fixData(val) {
             if(!val) return new Date().toLocaleString('pt-BR');
+            // Trata datas seriais do Excel
             if(!isNaN(val) && val > 40000) {
                 const d = new Date((val - 25569) * 86400 * 1000);
                 return d.toLocaleString('pt-BR');
@@ -225,12 +224,12 @@
             if(!n || !i) return alert("Preencha Nick e ID!");
 
             dados.push({
-                nick: n, id: i,
+                nick: n, 
+                id: i.startsWith('#') ? i : '#' + i,
                 recrutador: document.getElementById('display-nick').innerText,
                 data: d ? new Date(d).toLocaleString('pt-BR') : new Date().toLocaleString('pt-BR')
             });
             atualizar();
-            // Limpar campos
             document.getElementById('add-nick').value = "";
             document.getElementById('add-id').value = "";
         }
@@ -242,15 +241,25 @@
                 const wb = XLSX.read(data, {type: 'array'});
                 const sheet = wb.Sheets[wb.SheetNames[0]];
                 const json = XLSX.utils.sheet_to_json(sheet);
+                
+                // Limpa dados atuais se quiser substituir, ou mantém para adicionar
+                // dados = []; 
+
                 json.forEach(row => {
+                    // Mapeia os nomes das colunas conforme as imagens fornecidas
+                    const nick = row.nick || row.Nick || "N/A";
+                    const idOriginal = String(row.id || row.ID || "000");
+                    const idFormatado = idOriginal.startsWith('#') ? idOriginal : '#' + idOriginal;
+                    
                     dados.push({
-                        nick: row.Nick || row.nick || "N/A",
-                        id: row.ID || row.id || row.Passaporte || "000",
-                        recrutador: row.Recrutador || document.getElementById('display-nick').innerText,
-                        data: fixData(row.Data || row.Entrada)
+                        nick: nick,
+                        id: idFormatado,
+                        recrutador: row.recrutador || row.Recrutador || document.getElementById('display-nick').innerText,
+                        data: fixData(row.data || row.Data || row.Entrada)
                     });
                 });
                 atualizar();
+                alert("Excel importado com sucesso!");
             };
             reader.readAsArrayBuffer(e.target.files[0]);
         });
@@ -260,7 +269,12 @@
             txt.split('\n').forEach(linha => {
                 if(linha.includes('|')) {
                     const p = linha.split('|').map(x => x.trim());
-                    dados.push({ nick: p[0], id: p[1], recrutador: p[2] || document.getElementById('display-nick').innerText, data: p[3] || new Date().toLocaleString() });
+                    dados.push({ 
+                        nick: p[0], 
+                        id: p[1].startsWith('#') ? p[1] : '#' + p[1], 
+                        recrutador: p[2] || document.getElementById('display-nick').innerText, 
+                        data: p[3] || new Date().toLocaleString() 
+                    });
                 }
             });
             atualizar();
@@ -277,11 +291,24 @@
             corpo.innerHTML = '';
             dados.forEach((item, i) => {
                 corpo.innerHTML += `<tr>
-                    <td>${item.nick}</td><td>#${item.id}</td>
-                    <td>${item.recrutador}</td><td>${item.data}</td>
-                    <td><button class="btn-red" onclick="excluir(${i})">Excluir</button></td>
+                    <td>${item.nick}</td>
+                    <td>${item.id}</td>
+                    <td>${item.recrutador}</td>
+                    <td>${item.data}</td>
+                    <td style="display:flex; gap:5px;">
+                        <button class="btn-edit" onclick="editarData(${i})">Editar</button>
+                        <button class="btn-red" onclick="excluir(${i})">Excluir</button>
+                    </td>
                 </tr>`;
             });
+        }
+
+        function editarData(i) {
+            const novaData = prompt("Edite a Data e Hora:", dados[i].data);
+            if (novaData !== null) {
+                dados[i].data = novaData;
+                atualizar();
+            }
         }
 
         function excluir(i) { dados.splice(i, 1); atualizar(); }
@@ -310,7 +337,14 @@
         }
 
         function exportarExcel() {
-            const ws = XLSX.utils.json_to_sheet(dados);
+            // Prepara os dados para exportação mantendo o padrão das imagens
+            const dadosExport = dados.map(item => ({
+                nick: item.nick,
+                id: item.id,
+                recrutador: item.recrutador,
+                data: item.data
+            }));
+            const ws = XLSX.utils.json_to_sheet(dadosExport);
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "Novatos");
             XLSX.writeFile(wb, "Planilha_EG.xlsx");
@@ -327,7 +361,7 @@
             }
 
             document.getElementById('loading-overlay').style.display = 'flex';
-            document.getElementById('loading-text').innerText = isUpdate ? "Atualizando mensagens..." : "Enviando novas mensagens...";
+            document.getElementById('loading-text').innerText = isUpdate ? "Sincronizando edições..." : "Enviando novas mensagens...";
 
             const tamanhoBloco = 8;
             const totalPartes = Math.ceil(dados.length / tamanhoBloco);
@@ -337,7 +371,7 @@
                 for (let i = 0; i < totalPartes; i++) {
                     const inicio = i * tamanhoBloco;
                     const bloco = dados.slice(inicio, inicio + tamanhoBloco);
-                    let membrosTexto = bloco.map(n => `👤 **${n.nick}** | ID: #${n.id}\n📅 Entrada: ${n.data}`).join('\n\n');
+                    let membrosTexto = bloco.map(n => `👤 **${n.nick}** | ID: ${n.id}\n📅 Entrada: ${n.data}`).join('\n\n');
 
                     const payload = {
                         embeds: [{
@@ -370,14 +404,14 @@
                     if(!res.ok) throw new Error("Erro na comunicação");
 
                     const resData = await res.json();
-                    novosIds.push(resData.id);
+                    novosIds.push(resData.id || messageIds[i]);
 
                     if(totalPartes > 1) await sleep(1200);
                 }
 
                 messageIds = novosIds;
                 localStorage.setItem('eg_v2_msg_ids', JSON.stringify(messageIds));
-                alert(isUpdate ? "🔄 Lista atualizada com sucesso!" : "🚀 Lista enviada com sucesso!");
+                alert(isUpdate ? "🔄 Discord atualizado!" : "🚀 Lista enviada com sucesso!");
             } catch (err) {
                 alert("Falha ao processar. Verifique o Webhook.");
             } finally {
