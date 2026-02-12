@@ -13,15 +13,19 @@
             --accent: #43b581;
             --danger: #ff4747;
             --warning: #e67e22;
-            --glass: rgba(0, 0, 0, 0.92);
+            --glass: rgba(0, 0, 0, 0.85);
         }
 
         body {
             margin: 0;
             font-family: 'Poppins', sans-serif;
-            /* O segredo está aqui: Verifique se o nome é fundoeg.png ou fundoeg.png */
-            background: #0f0f0f url('fundoeg.png') no-repeat center center fixed;
+            /* CORREÇÃO DA IMAGEM: background-attachment fixed pode causar erro em alguns navegadores upados */
+            background-color: #0f0f0f; 
+            background-image: url('fundoeg.png');
+            background-repeat: no-repeat;
+            background-position: center;
             background-size: cover;
+            background-attachment: fixed;
             color: #fff;
             min-height: 100vh;
         }
@@ -80,7 +84,7 @@
 
     <div id="loading-overlay">
         <div style="border: 5px solid #333; border-top: 5px solid var(--primary); border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite;"></div>
-        <p id="loading-text" style="margin-top: 15px;">Processando...</p>
+        <p id="loading-text" style="margin-top: 15px;">Sincronizando com Discord...</p>
     </div>
 
     <div id="login-page">
@@ -112,11 +116,11 @@
                 <input type="text" id="add-nick" placeholder="Nick do Novato">
                 <input type="text" id="add-id" placeholder="ID do Novato">
                 <input type="datetime-local" id="add-date">
-                <button class="btn-blue" onclick="adicionarManual()">Adicionar à Lista</button>
+                <button class="btn-blue" onclick="adicionarManual()">Adicionar e Atualizar Canal</button>
                 
                 <hr style="opacity:0.1; margin:20px 0;">
                 
-                <h3>📁 Importar lista_Novatos</h3>
+                <h3>📁 Importar Planilha</h3>
                 <input type="file" id="import-excel" accept=".xlsx, .xls, .csv">
                 
                 <h3 style="margin-top:20px;">📝 Colar Dados</h3>
@@ -149,8 +153,8 @@
                 </div>
 
                 <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 20px;">
-                    <button class="btn-blue" style="padding:15px; font-size:1.1em;" onclick="enviarDiscord(false)">🚀 Enviar para Discord</button>
-                    <button class="btn-orange" style="padding:15px; font-size:1.1em;" onclick="enviarDiscord(true)">🔄 Atualizar no Discord</button>
+                    <button class="btn-orange" style="padding:15px; font-size:1.1em;" onclick="enviarDiscord(true)">🔄 Forçar Sincronização (Atualizar Canal)</button>
+                    <p style="font-size: 0.75em; opacity: 0.6; text-align: center;">Ao adicionar manualmente, o sistema tentará atualizar a mensagem existente automaticamente.</p>
                 </div>
             </div>
         </div>
@@ -159,6 +163,7 @@
     <script>
         let dados = JSON.parse(localStorage.getItem('eg_v2_dados')) || [];
         let webhookUrl = localStorage.getItem('eg_v2_webhook') || "";
+        // Message IDs agora são tratados com mais cautela para sincronização entre usuários
         let messageIds = JSON.parse(localStorage.getItem('eg_v2_msg_ids')) || [];
 
         window.onload = function() {
@@ -167,7 +172,7 @@
                 document.getElementById('nick-user').value = savedNick;
                 document.getElementById('id-user').value = localStorage.getItem('eg_v2_user_id') || "";
                 document.getElementById('discord-user').value = localStorage.getItem('eg_v2_user_discord') || "";
-                fazerLogin(true);
+                fazerLogin();
             }
         };
 
@@ -195,37 +200,8 @@
         function salvarConfig() {
             webhookUrl = document.getElementById('webhook-url').value;
             localStorage.setItem('eg_v2_webhook', webhookUrl);
-            alert("Webhook salvo!");
+            alert("Webhook configurado!");
         }
-
-        document.getElementById('import-excel').addEventListener('change', function(e) {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                const data = new Uint8Array(event.target.result);
-                const wb = XLSX.read(data, {type: 'array', cellDates: true});
-                const sheet = wb.Sheets[wb.SheetNames[0]];
-                const json = XLSX.utils.sheet_to_json(sheet);
-                
-                json.forEach(row => {
-                    const nick = row["Nick"] || row["nick"] || "N/A";
-                    let id = String(row["ID (Passaporte)"] || row["ID"] || row["id"] || "0");
-                    let entrada = row["Data e Horário"] || row["Data"] || row["Entrada"] || new Date().toLocaleString();
-
-                    if (!id.startsWith('#')) id = '#' + id;
-                    if (entrada instanceof Date) entrada = entrada.toLocaleString('pt-BR');
-
-                    dados.push({
-                        nick: nick,
-                        id: id,
-                        recrutador: document.getElementById('display-nick').innerText,
-                        data: entrada
-                    });
-                });
-                atualizar();
-                alert("Planilha importada com sucesso!");
-            };
-            reader.readAsArrayBuffer(e.target.files[0]);
-        });
 
         function adicionarManual() {
             const n = document.getElementById('add-nick').value;
@@ -239,10 +215,46 @@
                 recrutador: document.getElementById('display-nick').innerText,
                 data: d ? new Date(d).toLocaleString('pt-BR') : new Date().toLocaleString('pt-BR')
             });
+            
             atualizar();
             document.getElementById('add-nick').value = "";
             document.getElementById('add-id').value = "";
+            
+            // Tentativa automática de atualizar o Discord se já houver um ID salvo
+            if(messageIds.length > 0) {
+                enviarDiscord(true);
+            } else {
+                alert("Adicionado à lista local. Use 'Forçar Sincronização' para criar a lista no Discord pela primeira vez.");
+            }
         }
+
+        // Importação de Excel Corrigida
+        document.getElementById('import-excel').addEventListener('change', function(e) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const data = new Uint8Array(event.target.result);
+                const wb = XLSX.read(data, {type: 'array', cellDates: true});
+                const sheet = wb.Sheets[wb.SheetNames[0]];
+                const json = XLSX.utils.sheet_to_json(sheet);
+                
+                json.forEach(row => {
+                    const nick = row["Nick"] || row["nick"] || "N/A";
+                    let id = String(row["ID (Passaporte)"] || row["ID"] || row["id"] || "0");
+                    let entrada = row["Data e Horário"] || row["Data"] || row["Entrada"] || new Date().toLocaleString();
+                    if (!id.startsWith('#')) id = '#' + id;
+                    if (entrada instanceof Date) entrada = entrada.toLocaleString('pt-BR');
+
+                    dados.push({
+                        nick: nick,
+                        id: id,
+                        recrutador: document.getElementById('display-nick').innerText,
+                        data: entrada
+                    });
+                });
+                atualizar();
+            };
+            reader.readAsArrayBuffer(e.target.files[0]);
+        });
 
         function atualizar() {
             localStorage.setItem('eg_v2_dados', JSON.stringify(dados));
@@ -259,8 +271,8 @@
                     <td>${item.recrutador}</td>
                     <td>${item.data}</td>
                     <td>
-                        <button class="btn-edit" onclick="editarData(${i})">Editar</button>
-                        <button class="btn-red" onclick="excluir(${i})">Excluir</button>
+                        <button class="btn-edit" onclick="editarData(${i})">Edit</button>
+                        <button class="btn-red" onclick="excluir(${i})">X</button>
                     </td>
                 </tr>`;
             });
@@ -274,7 +286,7 @@
         function excluir(i) { dados.splice(i, 1); atualizar(); }
 
         function confirmarLimpeza() {
-            if(confirm("Deseja limpar toda a lista?")) {
+            if(confirm("Isso apagará a lista LOCAL. As mensagens no Discord permanecerão, a menos que você as apague manualmente lá. Continuar?")) {
                 dados = [];
                 messageIds = [];
                 localStorage.removeItem('eg_v2_msg_ids');
@@ -306,29 +318,46 @@
                     const payload = {
                         embeds: [{
                             title: "📊 LISTA DE NOVATOS - EG EGITO",
-                            description: `**Responsável:** ${document.getElementById('display-nick').innerText}\n**Parte:** ${i + 1}/${totalPartes}`,
+                            description: `**Sincronizado por:** ${document.getElementById('display-nick').innerText}\n**Parte:** ${i + 1}/${totalPartes}`,
                             color: 5814783,
-                            fields: [{ name: "Membros", value: texto }],
-                            footer: { text: "Sistema EG v2.0" },
+                            fields: [{ name: "Membros na Planilha", value: texto }],
+                            footer: { text: "EG Sistema Profissional | Sincronização Ativa" },
                             timestamp: new Date()
                         }]
                     };
 
-                    let url = isUpdate && messageIds[i] ? `${webhookUrl}/messages/${messageIds[i]}` : `${webhookUrl}?wait=true`;
+                    // Lógica de verificação: Se isUpdate for true E existir um ID para essa parte, ele dá PATCH.
+                    // Caso contrário, ele dá POST (cria nova).
+                    let url = (isUpdate && messageIds[i]) ? `${webhookUrl}/messages/${messageIds[i]}` : `${webhookUrl}?wait=true`;
+                    let metodo = (isUpdate && messageIds[i]) ? 'PATCH' : 'POST';
+
                     let res = await fetch(url, {
-                        method: isUpdate && messageIds[i] ? 'PATCH' : 'POST',
+                        method: metodo,
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
                     });
 
+                    if (res.status === 404 && isUpdate) {
+                        // Se tentou atualizar mas a mensagem sumiu, cria uma nova
+                        url = `${webhookUrl}?wait=true`;
+                        res = await fetch(url, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                    }
+
                     let rJson = await res.json();
                     novosIds.push(rJson.id || messageIds[i]);
-                    await new Promise(r => setTimeout(r, 1000));
+                    await new Promise(r => setTimeout(r, 1000)); // Rate limit protection
                 }
                 messageIds = novosIds;
                 localStorage.setItem('eg_v2_msg_ids', JSON.stringify(messageIds));
-                alert("Lista sincronizada com sucesso!");
-            } catch (e) { alert("Erro ao enviar para o Discord."); }
+                console.log("IDs de mensagens atualizados:", messageIds);
+            } catch (e) { 
+                console.error(e);
+                alert("Erro na conexão. Verifique o Webhook."); 
+            }
             finally { document.getElementById('loading-overlay').style.display = 'none'; }
         }
     </script>
